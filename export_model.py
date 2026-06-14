@@ -1,64 +1,83 @@
 import numpy as np
 import pandas as pd
 import pickle
-import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 print("Loading data...")
-data = pd.read_excel('dataset1.xlsx')
+data = pd.read_excel('Datasets/dataset12.xlsx')
+data = data.dropna(subset=['decision'])
 
-print("Preprocessing...")
-data['decision'] = data['decision'].replace({'reject': 'rejected', 'select': 'selected'})
-data = data.dropna(subset=['Transcript', 'Resume', 'Job Description', 'decision'])
+print("Building TF-IDF model...")
 
-def clean_text(text):
-    if isinstance(text, str):
-        text = re.sub(r'[^\w\s]', '', text).lower()
-        return text
-    return ""
+def get_tfidf_features(text1, text2):
+    tfidf = TfidfVectorizer(max_features=500)
+    tfidf_matrix = tfidf.fit_transform([text1, text2])
+    sim = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+    combined = text1 + " " + text2
+    return sim, combined
 
-for col in ['Transcript', 'Resume', 'Job Description']:
-    data[col] = data[col].apply(clean_text)
+print("Computing features...")
+resume_texts = data['Resume'].fillna('').astype(str).tolist()
+jobdesc_texts = data['Job Description'].fillna('').astype(str).tolist()
+transcript_texts = data['Transcript'].fillna('').astype(str).tolist()
 
-print("Extracting features...")
-data['length_of_transcript'] = data['Transcript'].apply(len)
-data['num_words_in_transcript'] = data['Transcript'].apply(lambda x: len(x.split()))
-data['length_of_resume'] = data['Resume'].apply(len)
-data['num_words_in_resume'] = data['Resume'].apply(lambda x: len(x.split()))
+all_texts = resume_texts + jobdesc_texts + transcript_texts
+tfidf = TfidfVectorizer(max_features=300)
+tfidf.fit(all_texts)
 
-def calculate_similarity(text1, text2):
-    tfidf_vectorizer = TfidfVectorizer()
-    tfidf_matrix = tfidf_vectorizer.fit_transform([text1, text2])
-    return cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+resume_tfidf = tfidf.transform(resume_texts)
+jobdesc_tfidf = tfidf.transform(jobdesc_texts)
+transcript_tfidf = tfidf.transform(transcript_texts)
 
-print("Computing similarities (this may take a while)...")
-data['resume_transcript_similarity'] = data.apply(lambda x: calculate_similarity(x['Resume'], x['Transcript']), axis=1)
-data['transcript_jobdesc_similarity'] = data.apply(lambda x: calculate_similarity(x['Transcript'], x['Job Description']), axis=1)
-data['resume_jobdesc_similarity'] = data.apply(lambda x: calculate_similarity(x['Resume'], x['Job Description']), axis=1)
+features_list = []
+for i in range(len(data)):
+    resume_vec = resume_tfidf[i]
+    jobdesc_vec = jobdesc_tfidf[i]
+    transcript_vec = transcript_tfidf[i]
+    
+    resume_jobdesc_sim = cosine_similarity(resume_vec, jobdesc_vec)[0][0]
+    transcript_jobdesc_sim = cosine_similarity(transcript_vec, jobdesc_vec)[0][0]
+    resume_transcript_sim = cosine_similarity(resume_vec, transcript_vec)[0][0]
+    
+    resume_len = len(resume_texts[i])
+    jobdesc_len = len(jobdesc_texts[i])
+    transcript_len = len(transcript_texts[i])
+    resume_words = len(resume_texts[i].split())
+    transcript_words = len(transcript_texts[i].split())
+    
+    features_list.append([
+        resume_len, jobdesc_len, transcript_len,
+        resume_words, transcript_words,
+        resume_jobdesc_sim, transcript_jobdesc_sim, resume_transcript_sim
+    ])
 
-feature_cols = ['num_words_in_transcript', 'length_of_transcript', 'num_words_in_resume',
-                'length_of_resume', 'resume_transcript_similarity',
-                'transcript_jobdesc_similarity', 'resume_jobdesc_similarity']
-
-X = data[feature_cols]
-le = LabelEncoder()
-y = le.fit_transform(data['decision'])
+X = np.array(features_list)
+y = (data['decision'] == 'selected').astype(int).values
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-print("Training XGBoost...")
-model = XGBClassifier(n_estimators=200, max_depth=5, learning_rate=0.1, eval_metric='logloss', random_state=42)
-model.fit(X_train, y_train)
+print("Training XGBoost with grid search...")
+from sklearn.model_selection import GridSearchCV
+param_grid = {
+    'n_estimators': [100, 200],
+    'max_depth': [3, 5, 7],
+    'learning_rate': [0.05, 0.1]
+}
+grid = GridSearchCV(
+    XGBClassifier(eval_metric='logloss', random_state=42),
+    param_grid, cv=5, scoring='accuracy', n_jobs=-1
+)
+grid.fit(X_train, y_train)
+best_model = grid.best_estimator_
 
-accuracy = model.score(X_test, y_test)
+accuracy = best_model.score(X_test, y_test)
 print(f"Test Accuracy: {accuracy:.4f}")
+print(f"Best Params: {grid.best_params_}")
 
-print("Saving model...")
 with open('model.pkl', 'wb') as f:
-    pickle.dump(model, f)
+    pickle.dump({'model': best_model, 'tfidf': tfidf}, f)
 
 print("Done! Model saved as model.pkl")

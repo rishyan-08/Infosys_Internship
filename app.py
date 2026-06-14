@@ -12,32 +12,32 @@ st.markdown("Predict whether a candidate should be **Selected** or **Rejected** 
 @st.cache_resource
 def load_model():
     with open('model.pkl', 'rb') as f:
-        model = pickle.load(f)
-    return model
+        data = pickle.load(f)
+    return data['model'], data['tfidf']
 
-def calculate_similarity(text1, text2):
-    tfidf = TfidfVectorizer()
-    tfidf_matrix = tfidf.fit_transform([text1, text2])
-    return cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-
-def extract_features(resume, job_description):
-    transcript_placeholder = resume
-    resume_transcript_sim = calculate_similarity(resume, transcript_placeholder)
-    transcript_jobdesc_sim = calculate_similarity(transcript_placeholder, job_description)
-    resume_jobdesc_sim = calculate_similarity(resume, job_description)
-
+def extract_features(resume, job_description, tfidf):
+    resume_vec = tfidf.transform([resume])
+    jobdesc_vec = tfidf.transform([job_description])
+    
+    resume_jobdesc_sim = cosine_similarity(resume_vec, jobdesc_vec)[0][0]
+    
+    resume_len = len(resume)
+    jobdesc_len = len(job_description)
+    resume_words = len(resume.split())
+    
+    transcript_len = 0
+    transcript_words = 0
+    transcript_jobdesc_sim = 0
+    resume_transcript_sim = 0
+    
     features = np.array([[
-        len(transcript_placeholder.split()),
-        len(transcript_placeholder),
-        len(resume.split()),
-        len(resume),
-        resume_transcript_sim,
-        transcript_jobdesc_sim,
-        resume_jobdesc_sim
+        resume_len, jobdesc_len, transcript_len,
+        resume_words, transcript_words,
+        resume_jobdesc_sim, transcript_jobdesc_sim, resume_transcript_sim
     ]])
-    return features
+    return features, resume_jobdesc_sim
 
-model = load_model()
+model, tfidf = load_model()
 
 col1, col2 = st.columns(2)
 
@@ -53,7 +53,7 @@ if st.button("Predict", type="primary"):
     if resume.strip() == "" or job_description.strip() == "":
         st.warning("Please fill in both fields.")
     else:
-        features = extract_features(resume, job_description)
+        features, sim_score = extract_features(resume, job_description, tfidf)
         prediction = model.predict(features)[0]
         probability = model.predict_proba(features)[0]
 
@@ -71,7 +71,7 @@ if st.button("Predict", type="primary"):
         st.subheader("Feature Analysis")
         st.write(f"- Resume Length: {len(resume)} characters")
         st.write(f"- Job Description Length: {len(job_description)} characters")
-        st.write(f"- Resume-Job Similarity: {calculate_similarity(resume, job_description):.3f}")
+        st.write(f"- Resume-Job Similarity: {sim_score:.3f}")
 
 st.markdown("---")
-st.markdown("Built with Scikit-learn, XGBoost, and Streamlit | Accuracy: 87.9%")
+st.markdown("Built with TF-IDF, XGBoost, and Streamlit | Accuracy: 81.6%")
