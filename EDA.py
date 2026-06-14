@@ -327,7 +327,7 @@
     }
    ],
    "source": [
-    "combined_df = combined_df.applymap(lambda x: x.lower() if isinstance(x, str) else x)\n",
+    "combined_df = combined_df.map(lambda x: x.lower() if isinstance(x, str) else x)\n",
     "combined_df['length_of_transcript'] = combined_df['Transcript'].apply(lambda x: len(x))\n",
     "combined_df"
    ]
