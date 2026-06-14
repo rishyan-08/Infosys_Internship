@@ -233,7 +233,7 @@
     "logging.basicConfig(level=logging.INFO)\n",
     "\n",
     "# Set the Together API key\n",
-    "os.environ[\"TOGETHER_API_KEY\"] = \"98d2e0259cfb2875868e6a30a295ec2a2bd70e18c394437e8b2374cc0cac8339\"\n",
+    "os.environ[\"TOGETHER_API_KEY\"] = \"\"\n",
     "client = Together()\n",
     "\n",
     "# Define reasons for selection and rejection\n",
